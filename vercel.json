@@ -2,8 +2,7 @@
   "version": 2,
   "functions": {
     "api/webhook.py": {
-      "runtime": "python3.9",
-      "maxLambdaSize": "15mb"
+      "runtime": "python3.9"
     }
   }
 }
