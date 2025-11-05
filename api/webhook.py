@@ -3,6 +3,8 @@ import os
 import json
 import logging
 from datetime import datetime
+import time
+import threading
 
 # Setup logging
 logging.basicConfig(level=logging.INFO)
@@ -16,8 +18,8 @@ try:
     logger.info("✅ All imports successful")
 except ImportError as e:
     logger.error(f"❌ Import error: {e}")
-    # Continue anyway for basic health check
     create_engine = None
+    httpx = None
 
 # Initialize Flask app
 app = Flask(__name__)
@@ -29,15 +31,10 @@ engine = None
 def init_db():
     """Initialize database connection"""
     global engine
-
-    if not DATABASE_URL:
-        logger.warning("⚠️ DATABASE_URL not set")
+    
+    if not DATABASE_URL or not create_engine:
         return False
-
-    if not create_engine:
-        logger.error("❌ SQLAlchemy not available")
-        return False
-
+    
     try:
         engine = create_engine(
             DATABASE_URL,
@@ -46,28 +43,77 @@ def init_db():
             connect_args={"sslmode": "require"},
             echo=False
         )
-
-        # Test connection
+        
         with engine.connect() as conn:
             conn.execute(text("SELECT 1"))
-
+        
         logger.info("✅ Database connected successfully")
         return True
-
+        
     except Exception as e:
         logger.error(f"❌ Database connection failed: {e}")
         return False
 
-# Initialize DB (but don't fail if it doesn't work)
+# Initialize DB
 try:
     init_db()
 except Exception as e:
     logger.error(f"❌ DB initialization error: {e}")
 
+
+def send_typing_action(bot_token, chat_id, duration=5):
+    """Send typing action for specified duration (in background)"""
+    if not httpx or not bot_token or not chat_id:
+        return
+    
+    def _send_typing():
+        try:
+            url = f"https://api.telegram.org/bot{bot_token}/sendChatAction"
+            end_time = time.time() + duration
+            
+            while time.time() < end_time:
+                try:
+                    httpx.post(
+                        url,
+                        json={"chat_id": chat_id, "action": "typing"},
+                        timeout=2.0
+                    )
+                    logger.info(f"✅ Sent typing action to chat {chat_id}")
+                except Exception as e:
+                    logger.warning(f"⚠️ Failed to send typing: {e}")
+                    break
+                
+                # Telegram typing lasts ~5 seconds, so send again after 4 seconds
+                time.sleep(4)
+                
+        except Exception as e:
+            logger.warning(f"⚠️ Typing thread error: {e}")
+    
+    # Run in background thread (non-blocking)
+    thread = threading.Thread(target=_send_typing, daemon=True)
+    thread.start()
+
+
+def answer_callback_query(bot_token, callback_query_id):
+    """Answer callback query immediately"""
+    if not httpx or not bot_token or not callback_query_id:
+        return
+    
+    try:
+        httpx.post(
+            f"https://api.telegram.org/bot{bot_token}/answerCallbackQuery",
+            json={"callback_query_id": callback_query_id},
+            timeout=2.0
+        )
+        logger.info("✅ Answered callback query")
+    except Exception as e:
+        logger.warning(f"⚠️ Failed to answer callback: {e}")
+
+
 @app.route('/api/webhook', methods=['GET', 'POST'])
 def webhook():
     """Main webhook endpoint"""
-
+    
     # GET - Health check
     if request.method == 'GET':
         health_status = {
@@ -81,42 +127,75 @@ def webhook():
             }
         }
         return jsonify(health_status), 200
-
+    
     # POST - Process webhook
     if not engine:
         logger.error("❌ Database not available for webhook processing")
         return jsonify({"error": "Database unavailable"}), 503
-
+    
     try:
         # Get webhook data
         update_data = request.get_json(force=True)
-
+        
         if not update_data:
             return jsonify({"error": "No data received"}), 400
-
+        
         update_id = update_data.get('update_id', 'unknown')
         logger.info(f"📨 Processing webhook update: {update_id}")
-
-        # Determine job type
+        
+        # Determine job type and extract chat info
+        chat_id = None
+        callback_query_id = None
+        
         if 'chat_join_request' in update_data:
             job_type = 'tgms_process_join_request'
             bot_token = os.environ.get('TGMS_BOT_TOKEN')
+            chat_id = update_data['chat_join_request'].get('chat', {}).get('id')
+            
+        elif 'callback_query' in update_data:
+            job_type = 'process_telegram_update'
+            bot_token = os.environ.get('BOT_TOKEN')
+            callback_query_id = update_data['callback_query'].get('id')
+            chat_id = update_data['callback_query'].get('message', {}).get('chat', {}).get('id')
+            
+        elif 'message' in update_data:
+            job_type = 'process_telegram_update'
+            bot_token = os.environ.get('BOT_TOKEN')
+            chat_id = update_data['message'].get('chat', {}).get('id')
+            
+        elif 'my_chat_member' in update_data:
+            job_type = 'tgms_process_update'
+            bot_token = os.environ.get('TGMS_BOT_TOKEN')
+            chat_id = update_data['my_chat_member'].get('chat', {}).get('id')
+            
         else:
             job_type = 'process_telegram_update'
             bot_token = os.environ.get('BOT_TOKEN')
-
+        
         if not bot_token:
             logger.error(f"❌ Bot token not configured for job type: {job_type}")
             return jsonify({"error": "Bot not configured"}), 500
-
-        # Insert job into database
+        
+        # === SEND IMMEDIATE RESPONSES ===
+        
+        # 1. Answer callback query if present (removes loading state)
+        if callback_query_id:
+            answer_callback_query(bot_token, callback_query_id)
+        
+        # 2. Send typing action for 5 seconds (background thread)
+        if chat_id:
+            send_typing_action(bot_token, chat_id, duration=5)
+            logger.info(f"🔄 Started typing indicator for chat {chat_id}")
+        
+        # === INSERT JOB INTO DATABASE ===
+        
         with engine.connect() as conn:
             with conn.begin():
                 query = text("""
                     INSERT INTO jobs (job_type, bot_token, payload, status, created_at, updated_at)
                     VALUES (:job_type, :bot_token, :payload, 'pending', :created_at, :updated_at)
                 """)
-
+                
                 conn.execute(query, {
                     'job_type': job_type,
                     'bot_token': bot_token,
@@ -124,31 +203,21 @@ def webhook():
                     'created_at': datetime.utcnow(),
                     'updated_at': datetime.utcnow()
                 })
-
+        
         logger.info(f"✅ Job queued successfully for update: {update_id}")
-
-        # Send immediate response if it's a callback query
-        try:
-            if 'callback_query' in update_data and httpx:
-                callback_id = update_data['callback_query'].get('id')
-                if callback_id:
-                    httpx.post(
-                        f"https://api.telegram.org/bot{bot_token}/answerCallbackQuery",
-                        json={"callback_query_id": callback_id},
-                        timeout=2.0
-                    )
-        except Exception as e:
-            logger.warning(f"⚠️ Could not send callback response: {e}")
-
+        
+        # Return success immediately (typing continues in background)
         return jsonify({
             "status": "ok",
             "message": "Webhook processed",
-            "update_id": update_id
+            "update_id": update_id,
+            "typing_started": bool(chat_id)
         }), 200
-
+        
     except Exception as e:
         logger.error(f"❌ Error processing webhook: {e}", exc_info=True)
         return jsonify({"error": "Processing failed", "details": str(e)}), 500
+
 
 @app.route('/')
 def index():
@@ -167,12 +236,10 @@ def index():
     </html>
     """, 200
 
-# This is critical for Vercel!
-# Vercel will call this app object directly
+
+# Critical for Vercel
 if __name__ != '__main__':
-    # Production mode (Vercel)
     logger.info("🚀 Running in production mode (Vercel)")
 else:
-    # Local development
     logger.info("🔧 Running in development mode")
     app.run(debug=True, port=8000)
