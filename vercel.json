@@ -1,23 +1,9 @@
 {
   "version": 2,
-  "builds": [
-    {
-      "src": "vercel_app/api/webhook.py",
-      "use": "@vercel/python",
-      "config": {
-        "runtime": "python3.9",
-        "maxLambdaSize": "15mb"
-      }
+  "functions": {
+    "api/webhook.py": {
+      "runtime": "python3.9",
+      "maxLambdaSize": "15mb"
     }
-  ],
-  "routes": [
-    {
-      "src": "/api/webhook",
-      "dest": "vercel_app/api/webhook.py"
-    },
-    {
-      "src": "/(.*)",
-      "dest": "vercel_app/public/$1"
-    }
-  ]
+  }
 }
