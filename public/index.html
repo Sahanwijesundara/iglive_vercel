@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Admin Dashboard</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/tachyons@4.12.0/css/tachyons.min.css"/>
+</head>
+<body class="bg-light-gray">
+
+    <main class="pa4">
+        <h1 class="f2">Admin Dashboard</h1>
+
+        <div class="pa4 bg-white shadow-1 br2 mv3">
+            <h2 class="f4">System Stats</h2>
+            <div id="stats-container">
+                <p>Loading stats...</p>
+            </div>
+        </div>
+
+        <div class="pa4 bg-white shadow-1 br2 mv3">
+            <h2 class="f4">Users</h2>
+            <div id="users-container">
+                <p>Loading users...</p>
+            </div>
+        </div>
+
+        <div class="pa4 bg-white shadow-1 br2 mv3">
+            <h2 class="f4">Groups</h2>
+            <div id="groups-container">
+                <p>Loading groups...</p>
+            </div>
+        </div>
+
+        <div class="pa4 bg-white shadow-1 br2 mv3">
+            <h2 class="f4">Job Queue</h2>
+            <div id="jobs-container">
+                <p>Loading jobs...</p>
+            </div>
+        </div>
+
+    </main>
+
+    <script>
+        // In a real app, you would fetch this data from an API endpoint.
+        // For the MVP, we can start with static data or simple fetch calls.
+        
+        // Placeholder data
+        const stats = {
+            users: 150,
+            groups: 25,
+            pending_jobs: 5
+        };
+
+        const users = [
+            { id: 1, username: 'user_one', points: 100 },
+            { id: 2, username: 'user_two', points: 50 },
+        ];
+
+        const groups = [
+            { id: 101, name: 'Group A', members: 1200 },
+            { id: 102, name: 'Group B', members: 800 },
+        ];
+
+        const jobs = [
+            { id: 1, type: 'process_telegram_update', status: 'pending' },
+            { id: 2, type: 'broadcast_message', status: 'processing' },
+        ];
+
+        // Render functions
+        function renderStats(data) {
+            const container = document.getElementById('stats-container');
+            container.innerHTML = `
+                <p><strong>Users:</strong> ${data.users}</p>
+                <p><strong>Groups:</strong> ${data.groups}</p>
+                <p><strong>Pending Jobs:</strong> ${data.pending_jobs}</p>
+            `;
+        }
+
+        function renderTable(containerId, headers, data) {
+            const container = document.getElementById(containerId);
+            let table = '<table class="f6 w-100 mw8 center" cellspacing="0">';
+            table += '<thead><tr>';
+            headers.forEach(h => { table += `<th class="fw6 bb b--black-20 tl pb3 pr3 bg-white">${h}</th>`; });
+            table += '</tr></thead>';
+            table += '<tbody class="lh-copy">';
+            data.forEach(row => {
+                table += '<tr>';
+                Object.values(row).forEach(val => { table += `<td class="pv3 pr3 bb b--black-20">${val}</td>`; });
+                table += '</tr>';
+            });
+            table += '</tbody></table>';
+            container.innerHTML = table;
+        }
+
+        // Initial render
+        renderStats(stats);
+        renderTable('users-container', ['ID', 'Username', 'Points'], users);
+        renderTable('groups-container', ['ID', 'Name', 'Members'], groups);
+        renderTable('jobs-container', ['ID', 'Type', 'Status'], jobs);
+
+    </script>
+
+</body>
+</html>
