@@ -143,6 +143,61 @@ def webhook():
         update_id = update_data.get('update_id', 'unknown')
         logger.info(f"📨 Processing webhook update: {update_id}")
         
+        # === HANDLE PRE-CHECKOUT IMMEDIATELY (CRITICAL!) ===
+        if 'pre_checkout_query' in update_data:
+            logger.info("💳 PRE-CHECKOUT QUERY - Handling immediately!")
+            bot_token = os.environ.get('BOT_TOKEN')
+            
+            if not bot_token or not httpx:
+                logger.error("❌ Cannot handle pre-checkout: missing bot_token or httpx")
+                return jsonify({"error": "Configuration error"}), 500
+            
+            try:
+                pre_checkout = update_data['pre_checkout_query']
+                query_id = pre_checkout.get('id')
+                invoice_payload = pre_checkout.get('invoice_payload', '')
+                from_user = pre_checkout.get('from', {})
+                sender_id = from_user.get('id')
+                
+                logger.info(f"Pre-checkout from user {sender_id}, payload: {invoice_payload}")
+                
+                # Quick validation
+                ok = True
+                error_message = None
+                
+                if ':' not in invoice_payload:
+                    ok = False
+                    error_message = "Invalid payment data"
+                else:
+                    try:
+                        package_id, user_id = invoice_payload.split(':')
+                        user_id = int(user_id)
+                        
+                        if user_id != sender_id:
+                            ok = False
+                            error_message = "User verification failed"
+                    except:
+                        ok = False
+                        error_message = "Invalid payment format"
+                
+                # Answer immediately
+                response = httpx.post(
+                    f"https://api.telegram.org/bot{bot_token}/answerPreCheckoutQuery",
+                    json={"pre_checkout_query_id": query_id, "ok": ok, "error_message": error_message},
+                    timeout=5.0
+                )
+                
+                if response.status_code == 200:
+                    logger.info(f"✅ Pre-checkout answered: ok={ok}")
+                    return jsonify({"status": "ok", "pre_checkout": "answered"}), 200
+                else:
+                    logger.error(f"❌ Failed to answer pre-checkout: {response.text}")
+                    return jsonify({"error": "Failed to answer"}), 500
+                    
+            except Exception as e:
+                logger.error(f"❌ Pre-checkout error: {e}", exc_info=True)
+                return jsonify({"error": str(e)}), 500
+        
         # Determine job type and extract chat info
         chat_id = None
         callback_query_id = None
