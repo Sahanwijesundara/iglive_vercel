@@ -142,6 +142,11 @@ def webhook():
         
         update_id = update_data.get('update_id', 'unknown')
         logger.info(f"📨 Processing webhook update: {update_id}")
+        logger.info(f"📋 Update keys: {list(update_data.keys())}")
+        
+        # Log full update for debugging payments
+        if 'pre_checkout_query' in update_data or 'successful_payment' in str(update_data):
+            logger.info(f"💳 PAYMENT UPDATE: {json.dumps(update_data, indent=2)}")
         
         # === HANDLE PRE-CHECKOUT IMMEDIATELY (CRITICAL!) ===
         if 'pre_checkout_query' in update_data:
@@ -181,9 +186,14 @@ def webhook():
                         error_message = "Invalid payment format"
                 
                 # Answer immediately
+                answer_payload = {"pre_checkout_query_id": query_id, "ok": ok}
+                if error_message:
+                    answer_payload["error_message"] = error_message
+                
+                logger.info(f"Sending answer: {answer_payload}")
                 response = httpx.post(
                     f"https://api.telegram.org/bot{bot_token}/answerPreCheckoutQuery",
-                    json={"pre_checkout_query_id": query_id, "ok": ok, "error_message": error_message},
+                    json=answer_payload,
                     timeout=5.0
                 )
                 
