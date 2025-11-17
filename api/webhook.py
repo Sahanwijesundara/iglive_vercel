@@ -123,7 +123,8 @@ def webhook():
             "environment": {
                 "DATABASE_URL": "set" if DATABASE_URL else "not set",
                 "BOT_TOKEN": "set" if os.environ.get('BOT_TOKEN') else "not set",
-                "TGMS_BOT_TOKEN": "set" if os.environ.get('TGMS_BOT_TOKEN') else "not set"
+                "TGMS_BOT_TOKEN": "set" if os.environ.get('TGMS_BOT_TOKEN') else "not set",
+                "SWAP_BOT_TOKEN": "set" if os.environ.get('SWAP_BOT_TOKEN') else "not set"
             }
         }
         return jsonify(health_status), 200
@@ -211,6 +212,11 @@ def webhook():
         # Determine job type and extract chat info
         chat_id = None
         callback_query_id = None
+        
+        # Detect which bot by checking the bot info in update
+        bot_id = None
+        if 'message' in update_data:
+            bot_id = update_data['message'].get('via_bot', {}).get('id')
         
         if 'chat_join_request' in update_data:
             job_type = 'tgms_process_join_request'
